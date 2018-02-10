@@ -39,8 +39,6 @@ var mask_msb, mask_result, mask_value, value_neg;
 		// as the destination, so we re-work the number here.
 		if (value < 0) {
 			value += mask_result + 1;
-			//value +
-			//value = value - value_neg;
 		}
 		value &= mask_result;
 		return this;
