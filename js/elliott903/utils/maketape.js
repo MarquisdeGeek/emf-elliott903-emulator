@@ -4,8 +4,8 @@ function makeTape(e, code) {
 	var code_size = code.length;
 
 	// Write standard bootstrap
-	writeInstruction(tape, e.assemble("0 8179"));
-	writeInstruction(tape, e.assemble("8 8182"));
+	writeInstruction(tape, e.assemble(0, "0 8179").output);
+	writeInstruction(tape, e.assemble(0, "8 8182").output);
 	writeInstruction(tape, -(code_size+3));
 
 	// Write code
@@ -14,7 +14,7 @@ function makeTape(e, code) {
 	}
 
 	// append JMP to start
-	writeInstruction(tape, e.assemble("8 " + (8177-code_size)));
+	writeInstruction(tape, e.assemble(0, "8 " + (8177-code_size)).output);
 	writeInstruction(tape, 0);
 	writeInstruction(tape, 0);
 

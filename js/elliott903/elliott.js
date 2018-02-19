@@ -97,26 +97,108 @@ Elliott = function() {
 		setSCR(8181);
 	}
 
-	function assemble(text) {
-		var reCodeLine = /\s*(\/?)\s*(\d+)\s+(\d+).*/;
-		var found = text.match(reCodeLine);
-		var code = 0;
+	// The text might be hex, decimal, or a label/equate
+	// Hex: 0xab or $ab
+	// Dec: #123
+	// Oct: 017
+	// Bin: 0101010b
+	function refToValue(text, state) {
+		if (Number.isInteger(text)) {
+			return text;
+		}
+		//
+		if (state && state.labels) {
+			if (state.labels[text]) {
+				return refToValue(state.labels[text]);
+			}
+		} else if (state && state.labels) {
+			if (state.equates[text]) {
+				return refToValue(state.equates[text]);
+			}
+		}
+		// Hex?
+		if (text.substr(0,1) == '$') {
+			return parseInt(text.substr(1), 16);
+		} else if (text.substr(0,2) == '0x') {
+			return parseInt(text.substr(2), 16);
 
-		if (found) {
-			code = found[1] ? MASK_B_MODIFIER : 0;
-			code += parseInt(found[2],10) << SHIFT_FUNCTION;
-			code += parseInt(found[3],10) << SHIFT_ADDRESS;
-			return code;
+		// Dec
+		} else if (text.substr(0,1) == '#') {
+			return parseInt(text.substr(1), 10);
+
+		// Binary (preced octal, so we can handle prefixed 0's on binary)
+		} else if (text.substr(text.length-1, 1) == 'b') {
+			return parseInt(text.substr(0, text.length-1), 2);
+
+		// Octal
+		} else if (text.substr(0,1) == '0') {
+			return parseInt(text.substr(1), 8);
+		
+		// Plain number, treat it as such (even though we'd prefer people use #123)
+		} else if (!isNaN(text)) {
+			return parseInt(text, 10);
 		}
 
-		// TODO: Support hex and octal
-		var reLiteralDecimal = /\s*\#\s*(\d+)\s*/;
-		var found = text.match(reLiteralDecimal);
+		return undefined;
+	}
+
+	// Return options:
+	//  error : instruction existed, but could not be understood
+	//  value : if defined, then there's a valid instruction, successfully built
+	//          if undefined (but not error) then this instruction updated the state only
+	function assemble(addr, text, state) {
+		var value;
+
+		// Store, and strip the label (if present) from the line
+		var reLabel = /(?:([a-zA-Z][a-zA-Z\d]*)\:)?(?:\s+(.*))?\s*$/;
+		found = text.match(reLabel);
 		if (found) {
-			return parseInt(found[1],10);
+			if (found[1] && found[1] != "") {
+				if (state) {
+					state.labels = state.labels || [];
+					state.labels[found[1]] = addr;
+				}
+				// If there is only a label on this line, exit now.
+				if (found[2] === undefined) {
+					return { output: undefined };
+				}
+				text = found[2];
+			}
 		}
 
-		return -1;
+		// Check for 'id equ 123' lines
+		var reEquLine = /([a-zA-Z][a-zA-Z\d]*)\s+equ\s+(\#?\$?\d+)\s*/;
+		var found = text.match(reEquLine);
+		if (found && state) {
+			state.equates = state.equates || [];
+			state.equates[found[1]] = found[2];
+			return { output: undefined };
+		}
+
+		var reCodeLine = /(?:([a-zA-Z][a-zA-Z\d]*)\:)?\s*(\/?)\s*(\d+)\s+([\D\d]+).*/;
+		found = text.match(reCodeLine);
+
+		if (found) {
+			var v = refToValue(found[4], state);
+			if (v === undefined) {
+				return { error: "Unknown symbol : " + found[4] }
+			}
+			value = found[2] ? MASK_B_MODIFIER : 0;
+			value += parseInt(found[3],10) << SHIFT_FUNCTION;
+			value += v << SHIFT_ADDRESS;
+		} else {
+			// Look for a literal
+			var reLiteralValue = /\s*db\s+(.*)\s*/;
+			var found = text.match(reLiteralValue);
+			if (found) {
+				value = refToValue(found[1], state);
+			}
+			if (value === undefined) {
+				return { error: "Unknown symbol : " + value }
+			}
+		}
+
+		return { output: value, instruction_length: 1, error: value===undefined?"Could not assembler":null};
 	}
 
 	function disassemble(address) {
@@ -143,17 +225,42 @@ Elliott = function() {
 	}
 
 	// Q. Fold this into assemble, and vary the output on input?
-	function assembleCode(code) {
+	function assembleCode(addr, code) {
 		var results = [];
-		for(var i=0;i<code.length;++i) {
-			results.push(assemble(code[i]));
+		var state = {};
+		var wasError;
+		var error_list;
+
+		// We run this in two passes, as some errors are due to missing labels.
+		// This second pass helps fix that.
+		for(var pass = 0;pass < 2;++pass) {
+			wasError = false;
+			error_list = [];
+			var addr_offset = 0;
+
+			for(var i=0;i<code.length;++i) {
+				var result = assemble(addr+addr_offset, code[i], state);
+				if (result.error) {
+					wasError = true;
+					++addr_offset;
+					error_list.push({ error: result.error, line: i, code: code[i]});
+				} else if (result.output !== undefined) {
+					results.push(result.output);
+					++addr_offset;
+				}
+			}
+			//
+			if (!wasError) {
+				break;
+			}
 		}
-		return results;
+		return { data: results, error: error_list, state: state };
 	}
 
 	function loadCode(address, code) {
-		for(var i=0;i<code.length;++i) {
-			putWord(address + i, assemble(code[i]));
+		var block = assembleCode(address, code).data;
+		for(var i=0;i<block.length;++i) {
+			putWord(address + i, block[i]);
 		}
 	}
 	

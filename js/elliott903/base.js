@@ -71,23 +71,26 @@ function resetElliott() {
 	gVars.debugemf = new emf.debugemf();
 
 	// Due to the size, this gets loaded at 8156
-	var tape_contents = gVars.emulatedMachine.assembleCode([
-		"0 8163",	// the ptr/index in B
-	//loop:
-		"/4 8164",  // load the next character (ptr + 8163)
-		"7 8162",   // if nul, exit
-		"10 1",  // inc the ptr
-		"15 6148",  // write a to teleprinter
-		"8 8157",   // jmp to start of loop
-		"8 8162", // spin here : could also use 15 7168 (return to lower iriority level)
+	var tape_contents = gVars.emulatedMachine.assembleCode(8156, [
+		"0 ptr",	// the ptr/index in B
+
+		"loop:",
+			"/4 8164",  // load the next character (ptr + 8163)
+			"7 halt",   // if nul, exit
+			"10 1",     // inc the ptr
+			"15 6148",  // write a to teleprinter
+			"8 loop",   // jmp to start of loop
+		"halt:",
+			"8 halt", // spin here : could also use 15 7168 (return to lower iriority level)
 		// 8163: ptr
-		"#0",
+		"ptr: db #0",
 		// 8164: Data (Hello world!) - 12 characters
-		"#64", "#93", "#100", "#100", "#103", "#24", // Hello
-		"#79", "#103", "#106", "#100", "#92", "#38", // World.
-		"#0" //nul
+		"data:",
+			"db #64", "db #93", "db #100", "db #100", "db #103", "db #24", // Hello
+			"db #79", "db #103", "db #106", "db #100", "db #92", "db #38", // World.
+			"db #0" //nul
 		]);
-	var tape_binary = makeTape(gVars.emulatedMachine, tape_contents);
+	var tape_binary = makeTape(gVars.emulatedMachine, tape_contents.data);
 
 	gVars.tape1 = new emf.device.PaperTape(tape_binary);
 	gVars.emulatedMachine.attachTapeDevice1(gVars.tape1);
@@ -165,6 +168,8 @@ function startElliott() {
 }
 
 function stepElliott() {
+	stopElliott();
+
 	// Store the previous version of the machine
 	var previous = gVars.emulatedMachine.clone();
 
